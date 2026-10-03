@@ -27,6 +27,7 @@ class HeatSoak:
             ("_HEAT_SOAK_SKIP", self.cmd_HEAT_SOAK_SKIP, "Internal command to skip the active heat soak countdown"),
             ("SOAK_INTERRUPT", self.cmd_HEAT_SOAK_SKIP, "Interrupt and skip the active heat soak countdown"),
             ("SOAK_SKIP", self.cmd_HEAT_SOAK_SKIP, "Skip the active heat soak countdown"),
+            ("SKIP_SOAK", self.cmd_HEAT_SOAK_SKIP, "Skip the active heat soak countdown"),
         ):
             is_reg = (
                 self.gcode.is_command_registered(cmd)

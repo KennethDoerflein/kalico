@@ -343,7 +343,7 @@ class GCodeDispatch:
             self._script_context -= 1
 
     def run_script(self, script):
-        if "INTERRUPT" in script or "SKIP_SOAK" in script or "_HEAT_SOAK_SKIP" in script:
+        if "INTERRUPT" in script or "SKIP_SOAK" in script or "SOAK_SKIP" in script or "_HEAT_SOAK_SKIP" in script:
             self._process_commands(script.split("\n"), need_ack=False)
         else:
             with self.mutex:
