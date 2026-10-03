@@ -21,32 +21,29 @@ class HeatSoak:
         self.total_time = 0
 
         # Register G-code commands
-        self.gcode.register_command(
-            "HEAT_SOAK",
-            self.cmd_HEAT_SOAK,
-            desc="Perform heat soak with countdown and skip capability",
-        )
-        self.gcode.register_command(
-            "SOAK_WAIT",
-            self.cmd_HEAT_SOAK,
-            desc="Alias for HEAT_SOAK",
-        )
-        self.gcode.register_command(
-            "_HEAT_SOAK_SKIP",
-            self.cmd_HEAT_SOAK_SKIP,
-            desc="Internal command to skip the active heat soak countdown",
-        )
-        self.gcode.register_command(
-            "SOAK_INTERRUPT",
-            self.cmd_HEAT_SOAK_SKIP,
-            desc="Interrupt and skip the active heat soak countdown",
-        )
+        for cmd, func, desc in (
+            ("HEAT_SOAK", self.cmd_HEAT_SOAK, "Perform heat soak with countdown and skip capability"),
+            ("SOAK_WAIT", self.cmd_HEAT_SOAK, "Alias for HEAT_SOAK"),
+            ("_HEAT_SOAK_SKIP", self.cmd_HEAT_SOAK_SKIP, "Internal command to skip the active heat soak countdown"),
+            ("SOAK_INTERRUPT", self.cmd_HEAT_SOAK_SKIP, "Interrupt and skip the active heat soak countdown"),
+            ("SOAK_SKIP", self.cmd_HEAT_SOAK_SKIP, "Skip the active heat soak countdown"),
+        ):
+            is_reg = (
+                self.gcode.is_command_registered(cmd)
+                if hasattr(self.gcode, "is_command_registered")
+                else cmd in getattr(self.gcode, "ready_gcode_handlers", {})
+            )
+            if not is_reg:
+                self.gcode.register_command(cmd, func, desc=desc)
 
         # Register webhook for web UI / Fluidd / Mainsail / API access
         webhooks = self.printer.lookup_object("webhooks")
         webhooks.register_endpoint("skip_soak", self._handle_webhook_skip_soak)
 
     def _send_status(self, msg):
+        display_status = self.printer.lookup_object("display_status", None)
+        if display_status is not None:
+            display_status.message = msg
         try:
             self.gcode.run_script_from_command(
                 f'STATUS_MSG PREFIX="[START_PRINT]:" MSG="{msg}"'
@@ -82,14 +79,16 @@ class HeatSoak:
         gcode = self.gcode
         counter = gcode.get_interrupt_counter()
         vsd = self.printer.lookup_object("virtual_sdcard", None)
+        is_sd_print = vsd is not None and vsd.is_active()
 
         def condition(eventtime):
+            nonlocal last_reported_sec
             if self.skip_requested:
                 return False
             if gcode.get_interrupt_counter() != counter:
                 self.skip_requested = True
                 return False
-            if vsd is not None and (vsd.must_pause_work or not vsd.is_active()):
+            if is_sd_print and (vsd.must_pause_work or not vsd.is_active()):
                 return False
 
             remaining = int(deadline - eventtime)
@@ -111,9 +110,10 @@ class HeatSoak:
         finally:
             self.soak_active = False
 
-        if self.skip_requested:
+        if self.skip_requested or gcode.get_interrupt_counter() != counter:
+            self.skip_requested = True
             self._send_status("Heat soak skipped!")
-        elif vsd is not None and (vsd.must_pause_work or not vsd.is_active()):
+        elif is_sd_print and (vsd.must_pause_work or not vsd.is_active()):
             self._send_status("Heat soak cancelled")
         else:
             self._send_status("Heat soak complete.")
