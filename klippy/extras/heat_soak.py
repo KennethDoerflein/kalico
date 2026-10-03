@@ -40,6 +40,14 @@ class HeatSoak:
         webhooks = self.printer.lookup_object("webhooks")
         webhooks.register_endpoint("skip_soak", self._handle_webhook_skip_soak)
 
+        for event in ("print_stats:reset", "virtual_sdcard:load_file", "virtual_sdcard:reset_file"):
+            self.printer.register_event_handler(event, self._reset)
+
+    def _reset(self, *args):
+        self.soak_active = False
+        self.skip_requested = False
+        self.time_remaining = 0
+
     def _send_status(self, msg):
         display_status = self.printer.lookup_object("display_status", None)
         if display_status is not None:
@@ -64,11 +72,13 @@ class HeatSoak:
         else:
             total_seconds = int(soak_minutes * 60)
 
-        if total_seconds <= 0:
+        if total_seconds <= 0 or self.skip_requested:
+            if self.skip_requested:
+                self._send_status("Heat soak skipped!")
+                self.skip_requested = False
             return
 
         self.soak_active = True
-        self.skip_requested = False
         self.total_time = total_seconds
         self.time_remaining = total_seconds
 
@@ -119,23 +129,23 @@ class HeatSoak:
             self._send_status("Heat soak complete.")
 
     def cmd_HEAT_SOAK_SKIP(self, gcmd):
+        self.skip_requested = True
         if self.soak_active:
-            self.skip_requested = True
             self.gcode.increment_interrupt_counter()
             gcmd.respond_info("Heat soak skip requested - continuing print.")
         else:
-            gcmd.respond_info("No heat soak currently active.")
+            gcmd.respond_info("Heat soak skip armed - will skip when reached.")
 
     def _handle_webhook_skip_soak(self, web_request):
+        self.skip_requested = True
         if self.soak_active:
-            self.skip_requested = True
             self.gcode.increment_interrupt_counter()
             web_request.send(
                 {"result": "success", "message": "Heat soak skip requested"}
             )
         else:
             web_request.send(
-                {"result": "ignored", "message": "No heat soak currently active"}
+                {"result": "success", "message": "Heat soak skip armed"}
             )
 
     def get_status(self, eventtime):
