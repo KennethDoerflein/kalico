@@ -1,0 +1,78 @@
+name: Automated Upstream Sync
+
+on:
+  schedule:
+    # Run daily at 04:30 UTC
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Check & Sync Upstream
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch Upstream
+        run: |
+          git remote add upstream https://github.com/Jacob10383/kalico.git || git remote set-url upstream https://github.com/Jacob10383/kalico.git
+          git fetch upstream main
+
+      - name: Check for new commits
+        id: check
+        run: |
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "Already up to date with upstream/main."
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "New upstream commits found."
+          fi
+
+      - name: Perform Sync
+        if: steps.check.outputs.has_changes == 'true'
+        id: sync
+        run: |
+          BRANCH_NAME="automated-upstream-sync"
+          git checkout -B "$BRANCH_NAME"
+          
+          if git merge upstream/main --no-edit; then
+            echo "sync_status=clean" >> $GITHUB_OUTPUT
+          else
+            echo "sync_status=conflicts" >> $GITHUB_OUTPUT
+            # If conflicts occurred, commit them so they are visible in the PR
+            git add -A
+            git commit -m "chore(upstream): merge upstream with conflict markers for review" || true
+          fi
+
+      - name: Create or Update Pull Request
+        if: steps.check.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automated-upstream-sync
+          title: "chore(upstream): automated sync with upstream Jacob10383/kalico"
+          commit-message: "chore(upstream): sync changes from Jacob10383/kalico"
+          body: |
+            ## Automated Upstream Sync
+
+            New commits were detected and pulled from `upstream/main` (`Jacob10383/kalico`).
+
+            ### Status: ${{ steps.sync.outputs.sync_status == 'clean' && '✅ Clean Merge' || '⚠️ Conflicts Detected (Review Required)' }}
+
+            ${{ steps.sync.outputs.sync_status == 'clean' && 'All files merged cleanly. This PR is ready to merge.' || 'Please review conflicting files flagged in this PR before merging.' }}
+          labels: |
+            upstream-sync
+            automated
