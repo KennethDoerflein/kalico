@@ -45,9 +45,6 @@ jobs:
         if: steps.check.outputs.has_changes == 'true'
         id: sync
         run: |
-          BRANCH_NAME="automated-upstream-sync"
-          git checkout -B "$BRANCH_NAME"
-          
           if git merge upstream/main --no-edit; then
             echo "sync_status=clean" >> $GITHUB_OUTPUT
           else
